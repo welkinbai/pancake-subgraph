@@ -14,6 +14,7 @@ import { Mint, Burn, Swap, Transfer, Sync } from "../generated/templates/Pair/Pa
 import { updatePairDayData, updateTokenDayData, updatePancakeDayData, updatePairHourData } from "./dayUpdates";
 import { getBnbPriceInUSD, findBnbPerToken, getTrackedVolumeUSD, getTrackedLiquidityUSD } from "./pricing";
 import { convertTokenToDecimal, ADDRESS_ZERO, FACTORY_ADDRESS, ONE_BI, ZERO_BD, BI_18 } from "./utils";
+import { log } from "@graphprotocol/graph-ts";
 
 function isCompleteMint(mintId: string): boolean {
   return MintEvent.load(mintId).sender !== null; // sufficient checks
@@ -162,6 +163,7 @@ export function handleTransfer(event: Transfer): void {
 }
 
 export function handleSync(event: Sync): void {
+  log.info("sync in for address={},blockNumber={}", [event.address.toHexString(), event.block.number.toString()]);
   let pair = Pair.load(event.address.toHex());
   let token0 = Token.load(pair.token0);
   let token1 = Token.load(pair.token1);
@@ -177,23 +179,40 @@ export function handleSync(event: Sync): void {
   pair.reserve0 = convertTokenToDecimal(event.params.reserve0, token0.decimals);
   pair.reserve1 = convertTokenToDecimal(event.params.reserve1, token1.decimals);
 
+  log.info("pair address={},pair reserve0={},pair reserve1={}", [
+    pair.id,
+    pair.reserve0.toString(),
+    pair.reserve1.toString(),
+  ]);
   if (pair.reserve1.notEqual(ZERO_BD)) pair.token0Price = pair.reserve0.div(pair.reserve1);
   else pair.token0Price = ZERO_BD;
   if (pair.reserve0.notEqual(ZERO_BD)) pair.token1Price = pair.reserve1.div(pair.reserve0);
   else pair.token1Price = ZERO_BD;
 
+  log.info("pair token0Price={},token1Price={}", [pair.token0Price.toString(), pair.token1Price.toString()]);
   let bundle = Bundle.load("1");
   bundle.bnbPrice = getBnbPriceInUSD();
+  log.info("bnbPrice={}", [bundle.bnbPrice.toString()]);
   bundle.save();
 
   let t0DerivedBNB = findBnbPerToken(token0 as Token);
   token0.derivedBNB = t0DerivedBNB;
   token0.derivedUSD = t0DerivedBNB.times(bundle.bnbPrice);
+  log.info("token0={} derivedBNB={} derivedUSD={}", [
+    token0.id,
+    token0.derivedBNB.toString(),
+    token0.derivedUSD.toString(),
+  ]);
   token0.save();
 
   let t1DerivedBNB = findBnbPerToken(token1 as Token);
   token1.derivedBNB = t1DerivedBNB;
   token1.derivedUSD = t1DerivedBNB.times(bundle.bnbPrice);
+  log.info("token1={} derivedBNB={} derivedUSD={}", [
+    token1.id,
+    token1.derivedBNB.toString(),
+    token1.derivedUSD.toString(),
+  ]);
   token1.save();
 
   // get tracked liquidity - will be 0 if neither is in whitelist
@@ -216,6 +235,7 @@ export function handleSync(event: Sync): void {
     .times(token0.derivedBNB as BigDecimal)
     .plus(pair.reserve1.times(token1.derivedBNB as BigDecimal));
   pair.reserveUSD = pair.reserveBNB.times(bundle.bnbPrice);
+  log.info("pair {} reserveBNB={} reserveUSD={}", [pair.id, pair.reserveBNB.toString(), pair.reserveUSD.toString()]);
 
   // use tracked amounts globally
   pancake.totalLiquidityBNB = pancake.totalLiquidityBNB.plus(trackedLiquidityBNB);
